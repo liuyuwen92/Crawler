@@ -36,20 +36,18 @@ HEADERS = [
 
 API_ = {
     'youku': "http://api.2m.vc/caij/inc/youku.php",
-    'mgtv': "http://api.2m.vc/caij/inc/mgtv.php",
+    # 'mgtv': "http://api.2m.vc/caij/inc/mgtv.php",
     'letv': "http://api.2m.vc/caij/inc/letv.php",
     'qiyi': "http://api.2m.vc/caij/inc/qiyi.php",
     'qq'  : "http://api.2m.vc/caij/inc/qq.php",
-    'sohu': "http://api.2m.vc/caij/inc/sohu.php",
-    'pptv': "http://api.2m.vc/caij/inc/pptv.php",
+    # 'sohu': "http://api.2m.vc/caij/inc/sohu.php",
+    # 'pptv': "http://api.2m.vc/caij/inc/pptv.php",
 }
 
 
 #绑定分类
 VOD_CLASS = {
     u'动作': 5,
-    u'喜剧': 6,
-    u'爱情': 7,
     u'科幻': 8,
     u'恐怖': 9,
     u'剧情': 10,

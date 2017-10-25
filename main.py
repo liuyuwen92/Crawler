@@ -3,29 +3,27 @@
 # Filename:
 # Author: Bowen
 # Create at 2017\9\23 0023
-import time,sys,os
-from multiprocessing import Process
-from common import *
+
+from __future__ import unicode_literals
+import time,sys
+
+from utils import *
 from config import *
 from logger import *
 
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
-logger = Logger('crawler%s.log' % time.strftime('%Y%m%d%H',time.localtime(time.time())), 'main', logging.INFO, logging.DEBUG)
-
-# 初始化Mysql数据库
-db = init_client()
-cur = db.cursor()
-
 
 def main(flag="", max=None, hour=None):
+    global logger, cur
+    cur = db.cursor()
 
     if flag == "":
         try:
             flag = sys.argv[1]
         except:
-            print("必选参数flag:{}\tmax:可选参数、数值类型、要抓取多少页\thour:可选参数、数值类型、获取每天的数据hour=24".decode('utf-8').format(API_.keys()))
+            print("必选参数flag:{}\tmax:可选参数、数值类型、要抓取多少页\thour:可选参数、数值类型、获取每天的数据hour=24".format(API_.keys()))
             return
 
     try:
@@ -38,26 +36,27 @@ def main(flag="", max=None, hour=None):
     except:
         pass
 
+    logger = Logger('%s-crawler.log' % flag, 'main')
     run(flag, API_[flag], max, hour,)
 
-    db.close()
-    cur.close()
-    print "All crawling are finished."
 
-
-def run(flag, url, max, hour):
+def run(flag, base_url, max, hour):
 
     # 获取接口初始数据
-    url_c = '{}?ac=videolist'.format(url)
+    source_url = '{}?ac=videolist'.format(base_url)
 
     # 获取最新抓取列表
-    c_body = get_body(url_c)
+    body = http_get(source_url)
 
-    if c_body == "":
-        logger.cri('[%s]初始化失败，网络错误。[URL:%s]'.decode('utf-8') % (flag, url_c))
+    if body == "":
+        logger.cri('[%s]初始化失败，网络错误。[URL:%s]' % (flag, source_url))
         return
 
-    vod_list = parse_video(c_body)
+    vod_list = parse_video(body)
+
+    if not len(vod_list):
+        logger.warn('[%s]当前api接口资源记录为空，暂无更新。' % flag)
+        return
 
     rd = int(vod_list['recordcount'])
     pt = int(vod_list['pagecount'])
@@ -71,27 +70,28 @@ def run(flag, url, max, hour):
 
     hour = str(hour) if hour <> None else ""
 
-    if rd == 0:
-        logger.warn('[%s]当前api接口资源记录为空，暂无更新。'.decode('utf-8') % flag)
-        return
-    logger.debug("max:{}".format(max))
+
+    # logger.debug("max:{}".format(max))
     c = consume()
-    produce(c, flag, url, max, hour).next()
+    produce(c, flag, base_url, max, hour).next()
 
 
 def get_data(url):
-        body = get_body(url)
-        if body == "":
-            logger.cri('获取数据失败，接口失效或访问受限[get_body is None][URL:%s]'.decode('utf-8') % url)
-            return []
+    data = []
+    try:
+        body = http_get(url)
         data = parse_video(body)['video']
-        return data
+    except:
+        logger.cri('获取数据失败，接口失效或访问受限[get_body is None][URL:%s]'.decode('utf-8') % url)
+
+    return data
+
 
 
 def produce(c, apiflag, apiurl, max, hour):
     """抓取任务列表data
-    max:采集总页数
-    hour:采集日期
+    max:抓取总页数
+    hour:抓取当天
     """
     c.next()
     data = []
@@ -105,13 +105,9 @@ def produce(c, apiflag, apiurl, max, hour):
         if data:
             c.send(data)
 
-        # except StopIteration, e:
-        #     logger.error("{}".format(repr(e)))
-        #     raise
-
         logger.debug("[PRODUCER-%s]page:%s:crawling finished." % (apiflag, n))
 
-        logger.info("[PRODUCER-%s]采集次数:%s,新增入库:%s条,新增加播放组:%s条,更新播放组:%s条。".decode('utf-8') %
+        logger.info("[PRODUCER-%s]采集次数:%s,新增入库:%s条,新增加播放组:%s条,更新播放组:%s条。" %
                      (apiflag, G.running, G.crawled_num, G.update_group_num, G.update_num))
     c.close()
     yield
@@ -139,7 +135,7 @@ def add_items(**k):
             if value is None:
                 k[key] = ""
             elif isinstance(value, basestring):
-                k[key] = value.strip().strip(',').strip('$')
+                k[key] = value.strip().strip(',').strip('$').strip('#')
             else:pass
 
 
@@ -150,84 +146,87 @@ def add_items(**k):
         actor = k.get('actor', '')
         director = k.get('director', '')
         area = k.get('area', '')
-        year = k.get('year', '')
-        state = int(k.get('state', 0))
+        try:
+            year = int(k.get('year', 0))
+            state = int(k.get('state', 0))
+        except:
+            year = 0
+            state = 0
+
         note = k.get('note', '')
         des = k.get('des', '')
         last = k.get('last', '')
-        dl = k.get('dl', [{'flag':'','dd':''}])
+        dl = k.get('dl', {})
 
-        flag = ""
-        dd = ""
-        i = 0
-        for _ in dl:
+        flag = "$$$".join(dl.keys())
+        dd = "$$$".join(dl.values())
+
+        # i = 0
+        for _ in dl.items():
             # 校验播放组是否合法
-            if not check_p(**_):
-                logger.error("[CONSUMER-{}]播放组不合法:{}".decode('utf-8').format(G.running, _))
+            if not check_p(*_):
+                logger.error("[CONSUMER-{}]...播放组不合法:{}".format(G.running, _))
                 return
-            if i == 0:
-                flag = _['flag']
-                dd = _['dd']
-                continue
-            flag = flag + '$$$' + _['flag']
-            dd = dd  + '$$$' + _['dd']
-            i += 1
+            # if i == 0:
+            #     flag = _['flag']
+            #     dd = _['dd']
+            #     continue
+            # flag = flag + '$$$' + _['flag']
+            # dd = dd  + '$$$' + _['dd']
+            # i += 1
 
 
         # 这三个字段的数据不完整将跳过采集
         if name == "" or pic == "" or dd == "" or flag == "":
-            logger.error('[Process-{0}][CONSUMER-{1}]数据不完整，跳过。'.decode('utf-8').format(os.getpid(), G.running))
+            logger.error('[CONSUMER-{0}]...数据不完整，跳过。'.format(G.running))
             return
 
-        flag = flag.strip('$')
-        dd = dd.strip('$')
 
         # 绑定分类采集
         tid = find_tid(item_type)
         if tid == None:
-            logger.warn('[CONSUMER-%s][%s]%s...未绑定分类，跳过。'.decode('utf-8') % (G.running, item_type, name))
+            logger.warn('[CONSUMER-%s][%s]%s...未绑定分类，跳过。' % (G.running, item_type, name))
             return
 
         # 检测数据是否已经存在
-        cx_sql = "SELECT d_name, d_playfrom, d_playurl FROM vod_vod WHERE d_name = '%s'" % name
+        cx_sql = "SELECT name, playfrom, playurl FROM vod_vod WHERE name = '%s'" % name
 
         cur.execute(cx_sql)
         data = cur.fetchone()
         if data <> None:
             if data[1].find(flag) > -1:
                 if data[2].find(dd) > -1:
-                    logger.warn('[CONSUMER-%s][%s]%s...地址相同，跳过。'.decode('utf-8') % (G.running, item_type, name))
+                    logger.warn('[CONSUMER-%s][%s]%s...地址相同，跳过。' % (G.running, item_type, name))
                     return
 
             flag1 = data[1].split('$$$')
             dd1 = data[2].split('$$$')
 
-            info = "[CONSUMER-{}]{}...".decode('utf-8').format(G.running, name)
+            msg = "[CONSUMER-{}][{}]{}...".format(G.running, item_type, name)
 
-            for i in dl:
-                if i['flag'] in flag1:
-                    if i['dd'] in dd1:
-                        info = info + "播放组(%s) 无需更新,".decode('utf-8') % i['flag']
+            for fg,d in dl.items():
+                if fg in flag1:
+                    if d in dd1:
+                        msg = msg + "播放组(%s) 无需更新," % fg
                     else:
-                        gx_sql = "REPLACE INTO VOD_VOD (d_playurl) VALUES (%s)"
-                        val_list = (i['dd'])
+                        gx_sql = "UPDATE vod_vod SET playurl = '%s' WHERE name = '%s'" % (d, name)
                         try:
                             # 执行SQL语句
-                            cur.execute(gx_sql, val_list)
+                            cur.execute(gx_sql)
                             # 提交到数据库执行
                             db.commit()
                             # 更新数量
                             G.update_num += 1
 
-                            info = info + "播放组(%s) 更新成功,".decode('utf-8') % i['flag']
+                            msg = msg + "播放组(%s) 更新成功," % fg
 
                         except Exception, e:
                             db.rollback()
-                            logger.error('%s' % repr(e))
+                            logger.error('[CONSUMER-%s]%s...%s' % (G.running, gx_sql, repr(e)))
 
                 else:
-                    val_list = (data[1]+"$$$"+i['flag'], data[2]+"$$$"+i['dd'], name)
-                    gx_sql = "UPDATE VOD_VOD SET d_playfrom = '%s', d_playurl = '%s' WHERE d_name = '%s'" % val_list
+                    val_list = (data[1] + "$$$" + fg, data[2] + "$$$" + d, name)
+                    gx_sql = "UPDATE vod_vod SET playfrom = '%s', playurl = '%s' WHERE name = '%s'" % val_list
 
                     try:
                         # 执行SQL语句
@@ -237,20 +236,20 @@ def add_items(**k):
                         # 新增播放组数量
                         G.update_group_num += 1
 
-                        info = info + "新增加播放组(%s) 入库成功,".decode('utf-8') % i['flag']
+                        msg = msg + "新增加播放组(%s) 入库成功," % fg
 
                     except Exception, e:
                         db.rollback()
-                        logger.error('%s' % repr(e))
+                        logger.error('[CONSUMER-%s]%s...%s' % (G.running, gx_sql, repr(e)))
 
 
-            logger.info('%s' % info)
+            logger.info(msg)
 
             return
 
-        sql_val = (name,pic,actor,director,area,year,last,des,flag,dd,tid,note)
+        sql_val = (name,pic,actor,director,area,year,last,des,flag,tid,note,dd,last)
         # SQL 插入语句
-        sql = "INSERT INTO vod_vod VALUES (id, %s, %s, %s, %s, %s, %s, 0, 0, %s, %s, %s, %s, '', %s, %s)"
+        sql = "INSERT INTO vod_vod VALUES (id, %s, %s, %s, %s, %s, %s, 0, 0, %s, %s, %s, '', %s, %s, %s, %s)"
         try:
             # 执行sql语句
             cur.execute(sql, sql_val)
@@ -258,11 +257,11 @@ def add_items(**k):
             db.commit()
 
             G.crawled_num += 1
-            logger.info('[CONSUMER-%s][%s]%s...新加入库，成功。'.decode('utf-8') % (G.running, item_type, name))
+            logger.info('[CONSUMER-%s][%s]%s...新加入库，成功。' % (G.running, item_type, name))
 
         except Exception, e:
             db.rollback()
-            logger.error('%s' % repr(e))
+            logger.error('[CONSUMER-%s]%s...入库失败。%s' % (G.running, name, repr(e)))
 
 
 class G(object):
@@ -277,5 +276,11 @@ class G(object):
 
 
 if __name__ == "__main__":
-    main()
+    # 初始化Mysql数据库
+    db = init_client()
 
+    main('letv',100)
+
+    db.close()
+    cur.close()
+    print "All crawling are finished."

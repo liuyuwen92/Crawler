@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="10ffdfc7-9d2f-4b6e-a03f-93009e1c8535" name="aliyun" url="http://120.77.83.55">
+        <fileTransfer host="120.77.83.55" port="22" rootFolder="/home/VodCrawler" accessType="SFTP" password="dfe8dfc5dfdddfcfdfc4df98df9edfc1df9bdf98df99" username="root">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
